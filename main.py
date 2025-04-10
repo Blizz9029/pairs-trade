@@ -718,7 +718,7 @@ def show_trade_form(pair):
             st.session_state.show_trade_form = False
             st.experimental_rerun()
 
-Copydef update_positions():
+update_positions():
     """Update positions with current prices and status"""
     if not st.session_state.positions:
         return []
