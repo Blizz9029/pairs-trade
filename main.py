@@ -12,6 +12,8 @@ import json
 import uuid
 import requests
 from io import StringIO
+pip install -r requirements.txt
+
 
 # Page configuration
 st.set_page_config(
