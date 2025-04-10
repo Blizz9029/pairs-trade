@@ -718,7 +718,7 @@ def show_trade_form(pair):
             st.session_state.show_trade_form = False
             st.experimental_rerun()
 
-def update_positions():
+Copydef update_positions():
     """Update positions with current prices and status"""
     if not st.session_state.positions:
         return []
@@ -732,8 +732,8 @@ def update_positions():
         
         for position in st.session_state.positions:
             updated = position.copy()
-
- stock1_symbol = position['stock1_symbol']
+            
+            stock1_symbol = position['stock1_symbol']
             stock2_symbol = position['stock2_symbol']
             
             if df is not None and not df.empty and stock1_symbol in df.columns and stock2_symbol in df.columns:
@@ -799,6 +799,7 @@ def update_positions():
             updated_positions.append(updated)
     
     return updated_positions
+
 
 def close_position(position_id):
     """Close a position"""
