@@ -8,22 +8,22 @@ import statsmodels.api as sm
 from statsmodels.tsa.stattools import coint
 from datetime import datetime, timedelta
 import pytz
-import json
 import uuid
-import requests
 from io import StringIO
+import requests
 
 
 # Page configuration
 st.set_page_config(
-    page_title="Shashank Udupa Pairs Trading App",
+    page_title="Pairs Trading App",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # Custom CSS
-st.markdown("""
+st.markdown(
+    """
 <style>
     .main {
         background-color: #0e1117;
@@ -80,7 +80,9 @@ st.markdown("""
         border-top: 1px solid rgba(255, 255, 255, 0.1);
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True
+)
 
 # Configure IST timezone
 IST = pytz.timezone('Asia/Kolkata')
@@ -107,16 +109,13 @@ if 'stock_limit' not in st.session_state:
 def get_nifty500_list():
     """Get list of Nifty 500 stocks with their sectors"""
     try:
-        # Try to fetch from NSE website or use CSV from GitHub
         url = "https://raw.githubusercontent.com/stock-analysis-project/stock-data/main/nifty500_stocks.csv"
         response = requests.get(url)
         
         if response.status_code == 200:
-            # Parse CSV data
             csv_data = StringIO(response.text)
             df = pd.read_csv(csv_data)
             
-            # Create dictionary with stock symbols and details
             stocks = {}
             for _, row in df.iterrows():
                 symbol = row['Symbol'] + '.NS'
@@ -127,8 +126,6 @@ def get_nifty500_list():
             
             return stocks
         else:
-            # Fallback to a smaller set of stocks if unable to fetch
-            st.warning("Could not fetch Nifty 500 stocks, using default stock list")
             return get_default_stocks()
             
     except Exception as e:
@@ -390,7 +387,7 @@ def analyze_pairs(min_correlation=0.7, min_z_score=2.0, selected_sector='All', r
                         
                         results.append(pair_data)
                     except Exception as e:
-                        pass  # Silently skip pairs that fail analysis
+                        continue  # Silently skip pairs that fail analysis
             
             # Update progress
             progress_bar.progress(sector_idx / total_sectors)
@@ -422,6 +419,9 @@ def display_pair_analysis(pair):
         
         # Align the indexes
         common_idx = stock1_data.index.intersection(stock2_data.index)
+        if len(common_idx) < 30:
+            st.error("Insufficient data for analysis.")
+            return
         stock1_data = stock1_data.loc[common_idx]
         stock2_data = stock2_data.loc[common_idx]
         
@@ -746,414 +746,13 @@ def update_positions():
                 updated['current_price2'] = round(current_price2, 2)
                 
                 # Calculate P&L
-                if position['position_type'] == 'BUY_SELL':
-                    pnl1 = (current_price1 - position['entry_price1']) / position['entry_price1'] * 100
-                    pnl2 = (position['entry_price2'] - current_price2) / position['entry_price2'] * 100
-                else:  # SELL_BUY
-                    pnl1 = (position['entry_price1'] - current_price1) / position['entry_price1'] * 100
-                    pnl2 = (current_price2 - position['entry_price2']) / position['entry_price2'] * 100
-                
-                updated['pnl1'] = round(pnl1, 2)
-                updated['pnl2'] = round(pnl2, 2)
-                updated['total_pnl'] = round(pnl1 + pnl2, 2)
-                
-                # Calculate current z-score
-                stock1_data = df[stock1_symbol].dropna()
-                stock2_data = df[stock2_symbol].dropna()
-                
-                # Align the indexes
-                common_idx = stock1_data.index.intersection(stock2_data.index)
-                stock1_data = stock1_data.loc[common_idx]
-                stock2_data = stock2_data.loc[common_idx]
-                
-                # Calculate spread and z-score
-                spread = stock1_data - position['hedge_ratio'] * stock2_data
-                mean = spread.mean()
-                std = spread.std()
-                current_z_score = (spread.iloc[-1] - mean) / std
-                
-                updated['current_z_score'] = round(current_z_score, 2)
-                
-                # Determine exit signal
-                updated['stop_loss_triggered'] = False
-                updated['exit_signal'] = 'HOLD'
-                
-                # Check for stop loss hit
-                if position['position_type'] == 'BUY_SELL':
-                    if current_price1 < position['stop_loss1'] or current_price2 > position['stop_loss2']:
-                        updated['stop_loss_triggered'] = True
-                        updated['exit_signal'] = 'CLOSE (Stop Loss Hit)'
-                    elif abs(current_z_score) < 0.5:
-                        updated['exit_signal'] = 'CLOSE (Target Reached)'
-                else:  # SELL_BUY
-                    if current_price1 > position['stop_loss1'] or current_price2 < position['stop_loss2']:
-                        updated['stop_loss_triggered'] = True
-                        updated['exit_signal'] = 'CLOSE (Stop Loss Hit)'
-                    elif abs(current_z_score) < 0.5:
-                        updated['exit_signal'] = 'CLOSE (Target Reached)'
-                
-                # Calculate days in trade
-                entry_date = datetime.strptime(position['entry_time'].split()[0], '%Y-%m-%d')
-                days_in_trade = (now.date() - entry_date.date()).days
-                updated['days_in_trade'] = days_in_trade
-            
-            updated_positions.append(updated)
-    
-    return updated_positions
-
-
-def close_position(position_id):
-    """Close a position"""
-    st.session_state.positions = [p for p in st.session_state.positions if p['id'] != position_id]
-    st.success("Position closed successfully")
-
-def display_positions(positions):
-    """Display active positions in a formatted way"""
-    if not positions:
-        st.info("No active positions")
-        return
-    
-    for position in positions:
-        with st.container():
-            cols = st.columns([3, 3, 2, 2])
-            
-            with cols[0]:
-                st.markdown(f"### {position['stock1']} / {position['stock2']}")
-                st.markdown(f"**Sector:** {position['sector']}")
-                st.markdown(f"**Entry Date:** {position['entry_time'].split()[0]}")
-                if 'days_in_trade' in position:
-                    st.markdown(f"**Days in Trade:** {position['days_in_trade']}")
-            
-            with cols[1]:
-                if position['position_type'] == 'BUY_SELL':
-                    leg1 = f"🟢 **BUY** {position['stock1']}"
-                    leg2 = f"🔴 **SELL** {position['stock2']}"
-                else:
-                    leg1 = f"🔴 **SELL** {position['stock1']}"
-                    leg2 = f"🟢 **BUY** {position['stock2']}"
-                
-                st.markdown(leg1)
-                st.markdown(f"Entry: ₹{position['entry_price1']:.2f} | Current: ₹{position.get('current_price1', 0):.2f}")
-                st.markdown(f"Stop Loss: ₹{position['stop_loss1']:.2f} | Qty: {position['quantity1']}")
-                
-                st.markdown(leg2)
-                st.markdown(f"Entry: ₹{position['entry_price2']:.2f} | Current: ₹{position.get('current_price2', 0):.2f}")
-                st.markdown(f"Stop Loss: ₹{position['stop_loss2']:.2f} | Qty: {position['quantity2']}")
-            
-            with cols[2]:
-                st.markdown("### Performance")
-                
-                # PnL display
-                if 'total_pnl' in position:
-                    pnl_color = "green" if position['total_pnl'] >= 0 else "red"
-                    st.markdown(f"**Total P&L:** <span style='color:{pnl_color};'>{position['total_pnl']:.2f}%</span>", unsafe_allow_html=True)
-                    
-                    st.markdown(f"**{position['stock1']} P&L:** <span style='color:{'green' if position.get('pnl1', 0) >= 0 else 'red'};'>{position.get('pnl1', 0):.2f}%</span>", unsafe_allow_html=True)
-                    st.markdown(f"**{position['stock2']} P&L:** <span style='color:{'green' if position.get('pnl2', 0) >= 0 else 'red'};'>{position.get('pnl2', 0):.2f}%</span>", unsafe_allow_html=True)
-                
-                # Z-score display
-                if 'current_z_score' in position:
-                    z_color = "red" if position['current_z_score'] > 1 else ("green" if position['current_z_score'] < -1 else "white")
-                    st.markdown(f"**Current Z-Score:** <span style='color:{z_color};'>{position['current_z_score']:.2f}</span>", unsafe_allow_html=True)
-            
-            with cols[3]:
-                st.markdown("### Action")
-                
-                # Exit signal
-                if 'exit_signal' in position:
-                    signal_color = "red" if position['exit_signal'].startswith('CLOSE') else "yellow"
-                    st.markdown(f"**Signal:** <span style='color:{signal_color};'>{position['exit_signal']}</span>", unsafe_allow_html=True)
-                
-                # Close button
-                if st.button("Close Position", key=f"close_{position['id']}"):
-                    close_position(position['id'])
-                    st.experimental_rerun()
-                
-                # Analyze button
-                if st.button("Analyze Pair", key=f"analyze_{position['id']}"):
-                    # Find pair data
-                    pair = None
-                    for p in st.session_state.pairs:
-                        if p['stock1_symbol'] == position['stock1_symbol'] and p['stock2_symbol'] == position['stock2_symbol']:
-                            pair = p
-                            break
-                    
-                    if pair:
-                        st.session_state.selected_pair = pair
-                        st.experimental_rerun()
-                    else:
-                        # Create a simple pair structure if not found in current pairs
-                        simple_pair = {
-                            'stock1_symbol': position['stock1_symbol'],
-                            'stock2_symbol': position['stock2_symbol'],
-                            'stock1': position['stock1'],
-                            'stock2': position['stock2'],
-                            'sector': position['sector'],
-                            'position_type': position['position_type'],
-                            'hedge_ratio': position['hedge_ratio']
-                        }
-                        st.session_state.selected_pair = simple_pair
-                        st.experimental_rerun()
-            
-            st.markdown("---")
-
-def export_positions():
-    """Export positions to CSV"""
-    if not st.session_state.positions:
-        st.warning("No positions to export")
-        return
-    
-    updated_positions = update_positions()
-    
-    # Convert to DataFrame
-    df = pd.DataFrame(updated_positions)
-    
-    # Select columns to export
-    if len(df.columns) > 0:
-        cols = ['id', 'entry_time', 'stock1', 'stock2', 'position_type', 
-                'entry_price1', 'entry_price2', 'current_price1', 'current_price2',
-                'quantity1', 'quantity2', 'stop_loss1', 'stop_loss2', 
-                'pnl1', 'pnl2', 'total_pnl', 'current_z_score', 'exit_signal']
-        
-        # Keep only columns that exist
-        export_cols = [col for col in cols if col in df.columns]
-        df = df[export_cols]
-    
-    # Convert to CSV
-    csv = df.to_csv(index=False)
-    
-    # Create download button
-    st.download_button(
-        label="Download Positions CSV",
-        data=csv,
-        file_name=f"pairs_trading_positions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv"
-    )
-
-def export_pairs():
-    """Export pairs analysis to CSV"""
-    if not st.session_state.pairs:
-        st.warning("No pairs to export")
-        return
-    
-    # Convert to DataFrame
-    df = pd.DataFrame(st.session_state.pairs)
-    
-    # Convert to CSV
-    csv = df.to_csv(index=False)
-    
-    # Create download button
-    st.download_button(
-        label="Download Pairs Analysis CSV",
-        data=csv,
-        file_name=f"pairs_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv"
-    )
-
-# Main app layout
-def main():
-    st.title("Shashank Udupa Pairs Trading App")
-    
-    # Sidebar
-    with st.sidebar:
-        st.header("Settings")
-        
-        # Stock limit slider
-        st.session_state.stock_limit = st.slider(
-            "Number of stocks to analyze", 
-            min_value=20, 
-            max_value=500, 
-            value=st.session_state.stock_limit,
-            step=20,
-            help="Higher values will analyze more stocks but take longer"
-        )
-        
-        # Data refresh
-        if st.button("🔄 Force Data Refresh"):
-            with st.spinner("Refreshing data..."):
-                fetch_stock_data(force_refresh=True)
-                st.success("Data refreshed successfully")
-        
-        # Export options
-        st.header("Export Data")
-        export_col1, export_col2 = st.columns(2)
-        
-        with export_col1:
-            if st.button("Export Positions"):
-                export_positions()
-        
-        with export_col2:
-            if st.button("Export Pairs"):
-                export_pairs()
-        
-        # About section
-        st.markdown("---")
-        st.markdown("### About")
-        st.markdown("This app identifies statistical pairs trading opportunities in the NSE 500 index.")
-        st.markdown("Created by Shashank Udupa")
-        
-        # Last updated time
-        if st.session_state.last_updated:
-            st.markdown(f"Data last updated: {st.session_state.last_updated.strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Check if we should show trade form for a selected pair
-    if st.session_state.show_trade_form and st.session_state.selected_pair:
-        show_trade_form(st.session_state.selected_pair)
-        return
-    
-    # Tabs for different sections
-    tab1, tab2 = st.tabs(["Pairs Screener", "Active Positions"])
-    
-    with tab1:
-        # Header section with refresh button and last updated time
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            st.subheader("NSE Pairs Screener")
-        with col2:
-            market_hours = datetime.now(IST).hour >= 9 and datetime.now(IST).hour < 16
-            market_day = datetime.now(IST).weekday() < 5  # Monday to Friday
-            market_status = "OPEN" if market_hours and market_day else "CLOSED"
-            st.markdown(f"Market: <span style='color:{'green' if market_status == 'OPEN' else 'red'};'>{market_status}</span>", unsafe_allow_html=True)
-        with col3:
-            if st.button("🔄 Refresh Pairs"):
-                with st.spinner("Analyzing pairs..."):
-                    st.session_state.pairs = analyze_pairs()
-                    st.success("Pairs analysis updated")
-        
-        # Filter section
-        st.subheader("Filter Pairs")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            # Get unique sectors
-            sectors = set()
-            for _, details in st.session_state.nifty_stocks.items():
-                sectors.add(details['sector'])
-            sector_options = ['All'] + sorted(list(sectors))
-            selected_sector = st.selectbox("Sector", sector_options)
-        
-        with col2:
-            min_correlation = st.slider("Min Correlation", 0.0, 1.0, 0.7, 0.05)
-        
-        with col3:
-            min_z_score = st.slider("Min Z-Score", 0.0, 4.0, 2.0, 0.1)
-        
-        with col4:
-            require_cointegration = st.checkbox("Require Cointegration", value=True)
-        
-        if st.button("Apply Filters"):
-            with st.spinner("Analyzing pairs..."):
-                st.session_state.pairs = analyze_pairs(
-                    min_correlation=min_correlation,
-                    min_z_score=min_z_score,
-                    selected_sector=selected_sector,
-                    require_cointegration=require_cointegration
-                )
-        
-        # Pairs table
-        if not st.session_state.pairs:
-            if st.session_state.stock_data is None:
-                with st.spinner("Fetching initial data..."):
-                    fetch_stock_data()
-                    
-            st.session_state.pairs = analyze_pairs(
-                min_correlation=min_correlation,
-                min_z_score=min_z_score,
-                selected_sector=selected_sector,
-                require_cointegration=require_cointegration
-            )
-        
-        if st.session_state.pairs:
-            # Filter pairs based on current criteria
-            filtered_pairs = []
-            for pair in st.session_state.pairs:
-                if abs(pair['z_score']) < min_z_score:
-                    continue
-                if selected_sector != 'All' and pair['sector'] != selected_sector:
-                    continue
-                if require_cointegration and not pair['is_cointegrated']:
-                    continue
-                filtered_pairs.append(pair)
-            
-            if filtered_pairs:
-                st.subheader(f"Showing {len(filtered_pairs)} pairs")
-                
-                # Create DataFrame for display
-                pairs_df = pd.DataFrame([
-                    {
-                        'Pair': f"{p['stock1']} / {p['stock2']}",
-                        'Sector': p['sector'],
-                        'Correlation': p['correlation'],
-                        'Cointegrated': '✅' if p['is_cointegrated'] else '❌',
-                        'Z-Score': p['z_score'],
-                        'Signal': p['signal'],
-                        'Action': f"<button class='btn-analyze' onclick=\"alert('Use Streamlit buttons below')\">Analyze</button>"
-                    }
-                    for p in filtered_pairs
-                ])
-                
-                # Apply styler for Z-score coloring
-                def color_z_score(val):
-                    if val > 2:
-                        return 'color: red; font-weight: bold'
-                    elif val < -2:
-                        return 'color: green; font-weight: bold'
-                    return ''
-                
-                # Display table
-                st.dataframe(
-                    pairs_df.style.applymap(color_z_score, subset=['Z-Score']),
-                    hide_index=True,
-                    column_config={
-                        'Action': st.column_config.Column(
-                            'Action',
-                            width='small',
-                            help='Click to analyze'
-                        )
-                    }
-                )
-                
-                # Add selection
-                st.subheader("Select Pair to Analyze")
-                
-                # Create selectbox for pairs
-                pair_options = [f"{p['stock1']} / {p['stock2']} (Z-Score: {p['z_score']})" for p in filtered_pairs]
-                selected_pair_idx = st.selectbox("Select a pair", range(len(pair_options)), format_func=lambda x: pair_options[x])
-                
-                if st.button("Analyze Selected Pair"):
-                    st.session_state.selected_pair = filtered_pairs[selected_pair_idx]
-                    st.experimental_rerun()
-            else:
-                st.info("No pairs match the current filter criteria")
-        else:
-            st.info("No pairs found. Try adjusting filter criteria or increasing the number of stocks to analyze.")
-    
-    with tab2:
-        st.subheader("Active Positions")
-        
-        # Add position button
-        col1, col2 = st.columns([4, 1])
-        with col2:
-            if st.button("➕ Add Position"):
-                if st.session_state.pairs:
-                    # Select first pair by default
-                    st.session_state.selected_pair = st.session_state.pairs[0]
-                    st.session_state.show_trade_form = True
-                    st.experimental_rerun()
-                else:
-                    st.error("No pairs available. Please run pairs analysis first.")
-        
-        # Update positions
-        positions = update_positions()
-        
-        # Display positions
-        display_positions(positions)
-    
-    # If a pair is selected for analysis, show analysis
-    if st.session_state.selected_pair and not st.session_state.show_trade_form:
-        st.subheader(f"Analysis: {st.session_state.selected_pair['stock1']} / {st.session_state.selected_pair['stock2']}")
-        display_pair_analysis(st.session_state.selected_pair)
-
-if __name__ == "__main__":
-    main()
-
+                if position['entry_price1'] != 0 and position['entry_price2'] != 0:
+                  if position['position_type'] == 'BUY_SELL':
+                      pnl1 = (current_price1 - position['entry_price1']) / position['entry_price1'] * 100
+                      pnl2 = (position['entry_price2'] - current_price2) / position['entry_price2'] * 100
+                  else:  # SELL_BUY
+                      pnl1 = (position['entry_price1'] - current_price1) / position['entry_price1'] * 100
+                      pnl2 = (current_price2 - position['entry_price2']) / position['entry_price2'] * 100
+                  
+                  updated['pnl1'] = round(pnl1, 2)
+                  updated['pnl2
